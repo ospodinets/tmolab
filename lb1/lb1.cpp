@@ -63,34 +63,6 @@ namespace
         }
     }
 
-    double gamma_lanczos(double x) {
-        static const double coefficients[] = {
-            676.5203681218851,
-           -1259.1392167224028,
-            771.32342877765313,
-           -176.61502916214059,
-            12.507343278686905,
-           -0.13857109526572012,
-            9.9843695780195716e-6,
-            1.5056327351493116e-7
-        };
-        int g = 7;  // Константа для зміщення x
-
-        if (x < 0.5) {
-            // Використовуємо відношення гамма-функції для від’ємних x
-            return M_PI / (sin(M_PI * x) * gamma_lanczos(1 - x));
-        }
-
-        x -= 1;
-        double a = 0.99999999999980993;  // Початкове значення для сумування
-        for (int i = 0; i < sizeof(coefficients) / sizeof(double); ++i) {
-            a += coefficients[i] / (x + i + 1);
-        }
-
-        double t = x + g + 0.5;
-        return sqrt(2 * M_PI) * pow(t, x + 0.5) * exp(-t) * a;
-    }
-
     // Функція гамма (наближення за Стірлінгом)
     double gamma_stirling(double x) {
         return sqrt(2 * M_PI / x) * pow(x / M_E, x);
@@ -108,11 +80,12 @@ namespace
         }
 
         sum += (pow(0, k / 2.0 - 1) * exp(-0 / 2.0) + pow(x, k / 2.0 - 1) * exp(-x / 2.0)) / 2.0;  // Кінцеві точки
-        return sum * step / (pow(2, k / 2.0) * gamma_lanczos(k / 2.0));
+        return sum * step / (pow(2, k / 2.0) * tgamma(k / 2.0));
     }
 
     // Функція для обчислення квантиля Хі-квадрат методом бінарного пошуку
-    double chisqr_q(int k, double p) {
+    double chisqr_q(int k, double p)
+    {
         double low = 0.0;
         double high = 1000.0;
         double mid = 0.0;
@@ -133,20 +106,72 @@ namespace
     }
 
     // Функція для обчислення визначеного інтегралу методом Сімпсона
-    double integrate_simpson(const std::function<double(double)>& F, double a, double b, int n = 1000) {
+    double integrate_simpson(const std::function<double(double)>& F, double a, double b, int n = 1000)
+    {
         if (n % 2 != 0) ++n;  // Переконуємося, що n є парним
         double h = (b - a) / n;
         double integral = F(a) + F(b);
 
-        for (int i = 1; i < n; i += 2) {
+        for (int i = 1; i < n; i += 2)
+        {
             integral += 4 * F(a + i * h);  // Множимо на 4 для непарних індексів
         }
-        for (int i = 2; i < n - 1; i += 2) {
+        for (int i = 2; i < n - 1; i += 2)
+        {
             integral += 2 * F(a + i * h);  // Множимо на 2 для парних індексів
         }
 
         integral *= h / 3;
         return integral;
+    }
+
+    // Функція для щільності розподілу Стьюдента
+    double t_density(double x, int df)
+    {
+        double gamma_part = tgamma((df + 1) / 2.0) / (sqrt(df * M_PI) * tgamma(df / 2.0));
+        return gamma_part * pow(1 + x * x / df, -(df + 1) / 2.0);
+    }
+
+    // Наближення інтегралом для обчислення CDF розподілу Стьюдента
+    double t_cdf(double x, int df, int num_steps = 10000) {
+        double step = x / num_steps;
+        double sum = 0.0;
+        for (int i = 0; i < num_steps; ++i) {
+            double xi = i * step;
+            sum += t_density(xi, df) * step;
+        }
+        return 0.5 + sum;  // додаємо 0.5 для симетрії (t для двостороннього тесту)
+    }
+
+    // Метод Ньютона для знаходження критичного значення
+    double student_critical_value(int df, double alpha, double tol = 1e-6, int max_iter = 100)
+    {
+        double x = 1.0;  // початкове наближення
+        for (int i = 0; i < max_iter; ++i) {
+            double fx = t_cdf(x, df) - (1.0 - alpha / 2.0); // для двостороннього тесту
+            double dfx = t_density(x, df);  // похідна за x
+
+            if (fabs(fx) < tol) break;
+
+            x -= fx / dfx;
+        }
+        return x;
+    }
+
+    void test_t_quantile()
+    {
+        QVector<double> p = { 0.05 };
+
+        for (auto alpha : p)
+        {
+            for (int i = 1; i < 130; ++i)
+            {
+                double x = student_critical_value(i, alpha);
+                printf("student_critical_value(%f, %d) = %f\n", alpha, i, x);
+            }
+
+        }
+
     }
 
     void test_chi_square_quantile()
@@ -170,6 +195,7 @@ namespace
 lb1::lb1(QWidget *parent)
     : QMainWindow(parent)
     , m_flowIsTrivial(false)
+    , m_proc5isOk(false)
 {
     ui.setupUi(this);
     ui.inputTab->layout()->setAlignment(Qt::AlignTop);
@@ -179,12 +205,14 @@ lb1::lb1(QWidget *parent)
     ui.check4Group->layout()->setAlignment(Qt::AlignTop);
     ui.approximationTab->layout()->setAlignment(Qt::AlignTop);
     ui.check5Group->layout()->setAlignment(Qt::AlignTop);
+    ui.approximationTab2->layout()->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    ui.check6Group->layout()->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     connect(ui.browseBtn, SIGNAL(clicked()), this, SLOT(browse()));
     connect(ui.pathEdit, SIGNAL(textChanged(const QString&)), this, SLOT(loadIntervas(const QString&)));
     connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc3()));
     connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc4()));
-    connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc5()));
-    connect(ui.approxFunctionBox, SIGNAL(currentIndexChanged(int)), this, SLOT(proc5()));
+    connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc56()));
+    connect(ui.approxFunctionBox, SIGNAL(currentIndexChanged(int)), this, SLOT(proc56()));
 
     initApproximationFunctions();
 
@@ -192,6 +220,9 @@ lb1::lb1(QWidget *parent)
 
     ui.pathEdit->setText("C:/Users/ospodynets/Documents/EDU/TMO/opts/opt5.txt");
     loadIntervas(ui.pathEdit->text());
+    ui.approxFunctionBox->blockSignals(true);
+    ui.approxFunctionBox->setCurrentIndex(0);
+    ui.approxFunctionBox->blockSignals(false);
     evaluate();
 }
 
@@ -203,6 +234,8 @@ void lb1::disableUI()
     ui.tabWidget->setTabEnabled(1, false);
     ui.tabWidget->setTabEnabled(2, false);
     ui.tabWidget->setTabEnabled(3, false);
+    ui.tabWidget->setTabEnabled(4, false);
+
     ui.intervalsWidget->clear();
     ui.intervalsWidget->hide();
     ui.check1ResultsWidget->clear();
@@ -215,6 +248,8 @@ void lb1::disableUI()
     ui.check4ResultsWidget->clear();
     ui.check5Group->hide();
     ui.check5ResultsWidget->clear();
+    ui.check6Group->hide();
+    ui.check6ResultsWidget->clear();
 
     ui.inputGraphWidget->clearGraphs();
     ui.inputGraphWidget->replot();
@@ -235,6 +270,14 @@ void lb1::disableUI()
     ui.distributionGraphWidget->clearGraphs();
     ui.distributionGraphWidget->replot();
     ui.distributionGraphWidget->hide();
+
+    ui.approximation2GraphWidget->clearGraphs();
+    ui.approximation2GraphWidget->replot();
+    ui.approximation2GraphWidget->hide();
+
+    ui.distribution2GraphWidget->clearGraphs();
+    ui.distribution2GraphWidget->replot();
+    ui.distribution2GraphWidget->hide();
 }
 
 void lb1::initApproximationFunctions()
@@ -366,11 +409,10 @@ bool lb1::loadIntervas(const QString & path)
 void lb1::evaluate()
 {
     m_flowIsTrivial = proc1();
-    if (!m_flowIsTrivial)
-        proc2();
+    proc2();
     proc3();
     proc4();
-    proc5();
+    proc56();
 }
 
 bool lb1::proc1()
@@ -470,6 +512,9 @@ bool lb1::proc1()
 
 bool lb1::proc2()
 {
+    if (m_flowIsTrivial)
+        return false;
+
     double W = 0;
     for (int i = 0; i < m_intervals.size() - 1; ++i)
     {
@@ -781,6 +826,8 @@ bool lb1::proc4()
         int m = ui.mInputBox->value();
         double dt = (tmax - tmin) / m;
 
+
+        // get rid of it
         struct ClassDefinition
         {
             double dt;
@@ -842,6 +889,7 @@ bool lb1::proc4()
 
 
             LambdaS ls;
+            ls.ns = cd.ns;
             ls.t0 = min;
             ls.t1 = max;
             ls.lambda_s = cd.lambda_s;
@@ -980,8 +1028,11 @@ bool lb1::proc4()
     return true;
 }
 
-bool lb1::proc5()
+// аппроксимація функції інтенсивності
+// заданої функцією
+bool lb1::proc56()
 {
+    m_proc5isOk = false;
     if( m_flowIsTrivial )
         return false;
 
@@ -1220,13 +1271,16 @@ bool lb1::proc5()
     {
         double t = (ls.t0 + ls.t1) / 2;
         double integrV = integrate_simpson(lambda_t, 0, t);
-        y_dist.push_back(1 - exp(-integrV));
+        ls.dist = 1 - exp(-integrV);
+        y_dist.push_back( ls.dist );
 
         if (y_dist.back() > y_dist_max)
             y_dist_max = y_dist.back();
 
         if (y_dist.back() < y_dist_min)
             y_dist_min = y_dist.back();
+
+        
     }
 
     ui.distributionGraphWidget->clearItems();
@@ -1250,6 +1304,304 @@ bool lb1::proc5()
     ui.distributionGraphWidget->graph(0)->setPen(pen3);
 
     ui.distributionGraphWidget->replot();
+
+    m_proc5isOk = true;
+
+    proc6();
+
+    return true;
+}
+
+// визначення вірогідної кусково-сталої функції інтенсивності
+bool lb1::proc6()
+{
+    ui.tabWidget->setTabEnabled(4, false);
+
+    if (m_flowIsTrivial || !m_proc5isOk)
+        return false;
+
+    ui.tabWidget->setTabEnabled(4, true);
+
+    double t_student = student_critical_value(m_lambdaS.size() - 1, s_alpha / 2 );
+
+    QVector<LambdaS> remaining = m_lambdaS;
+    m_lambdaSDiscrete.clear();
+    m_lambdaSDiscrete.push_back(remaining.front());
+    remaining.pop_front();
+
+    m_lambdaSDiscrete.back().lambda_s1 = m_lambdaSDiscrete.back().lambda_s2 = m_lambdaSDiscrete.back().lambda_s;
+
+    while (!remaining.empty())
+    {
+        // H0: lambda_s = lambda_s1
+        double l0 = m_lambdaSDiscrete.back().lambda_s;
+        double l1 = remaining.front().lambda_s;
+
+        double n0 = m_lambdaSDiscrete.back().ns;
+        double n1 = remaining.front().ns;
+
+        double A = (l1 - l0) / sqrt((n0 - 1) * pow(l1, 2) + (n1 - 1) * pow(l0, 2));
+        double B = sqrt((n0 * n1 * (n0 + n1 - 2)) / (n0 + n1));
+
+        double t = A * B;
+
+        if (abs(t) <= t_student)
+        {
+            // H0 правильна
+            auto& last = m_lambdaSDiscrete.back();
+            last.ns += remaining.front().ns;
+            last.t1 = remaining.front().t1;
+            last.lambda_s = (n0 * l0 + n1 * l1) / (n0 + n1);
+        }
+        else
+        {
+            // H0 відхиляється
+            m_lambdaSDiscrete.push_back(remaining.front());
+            m_lambdaSDiscrete.back().lambda_s1 = m_lambdaSDiscrete.back().lambda_s2 = m_lambdaSDiscrete.back().lambda_s;
+        }
+        remaining.pop_front();
+    }
+
+    // заносимо значення у таблицю
+    ui.check6Group->show();
+
+    ui.check6ResultsWidget->clear();
+    ui.check6ResultsWidget->setRowCount(m_lambdaSDiscrete.size());
+    ui.check6ResultsWidget->setColumnCount(2);
+
+    QStringList headerLabels;
+    headerLabels << "t0..t1" << "Інтенсивність потоку";
+    ui.check6ResultsWidget->setHorizontalHeaderLabels(headerLabels);
+
+    for (int i = 0; i < m_lambdaSDiscrete.size(); ++i)
+    {
+        QTableWidgetItem* item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, QString::number(m_lambdaSDiscrete[i].t0) + ".." + QString::number(m_lambdaSDiscrete[i].t1));
+        ui.check6ResultsWidget->setItem(i, 0, item);
+
+        item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, m_lambdaSDiscrete[i].lambda_s);
+        ui.check6ResultsWidget->setItem(i, 1, item);
+    }
+
+    ui.check6ResultsWidget->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    // set minimuw width for columns to fit header text
+    ui.check6ResultsWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // set minimum width for columns
+    ui.check6ResultsWidget->horizontalHeader()->setMinimumSectionSize(50);
+
+    // графік кусково-сталої функції з попередніх процедур
+    
+    QVector<double> x_lambda_s, y_lambda_s;
+    QVector<double> y_lambda_s1;
+    QVector<double> y_lambda_s2;
+    double ymin = DBL_MAX;
+    double ymax = DBL_MIN;
+    for (auto& ls : m_lambdaS)
+    {
+        x_lambda_s.push_back(ls.t0);
+        y_lambda_s.push_back(ls.lambda_s);
+        y_lambda_s1.push_back(ls.lambda_s1);
+        y_lambda_s2.push_back(ls.lambda_s2);
+
+
+        x_lambda_s.push_back(ls.t1);
+        y_lambda_s.push_back(ls.lambda_s);
+        y_lambda_s1.push_back(ls.lambda_s1);
+        y_lambda_s2.push_back(ls.lambda_s2);
+
+        if (ls.lambda_s > ymax)
+            ymax = ls.lambda_s;
+
+        if (ls.lambda_s1 > ymax)
+            ymax = ls.lambda_s1;
+
+        if (ls.lambda_s2 > ymax)
+            ymax = ls.lambda_s2;
+
+        if (ls.lambda_s < ymin)
+            ymin = ls.lambda_s;
+
+        if (ls.lambda_s1 < ymin)
+            ymin = ls.lambda_s1;
+
+        if (ls.lambda_s2 < ymin)
+            ymin = ls.lambda_s2;
+    }
+
+    QVector<double> x_lambda, y_lambda;
+    for (auto& ls : m_lambdaSDiscrete)
+    {
+        x_lambda.push_back(ls.t0);
+        y_lambda.push_back(ls.lambda_s);
+
+        x_lambda.push_back(ls.t1);
+        y_lambda.push_back(ls.lambda_s);
+
+        if (ls.lambda_s > ymax)
+            ymax = ls.lambda_s;
+
+        if (ls.lambda_s1 > ymax)
+            ymax = ls.lambda_s1;
+
+        if (ls.lambda_s2 > ymax)
+            ymax = ls.lambda_s2;
+
+        if (ls.lambda_s < ymin)
+            ymin = ls.lambda_s;
+
+        if (ls.lambda_s1 < ymin)
+            ymin = ls.lambda_s1;
+
+        if (ls.lambda_s2 < ymin)
+            ymin = ls.lambda_s2;
+    }
+
+    ui.approximation2GraphWidget->clearItems();
+    ui.approximation2GraphWidget->clearGraphs();
+    ui.approximation2GraphWidget->show();
+    ui.approximation2GraphWidget->addGraph();
+    ui.approximation2GraphWidget->graph(0)->setData(x_lambda_s, y_lambda_s);
+
+    ui.approximation2GraphWidget->addGraph();
+    ui.approximation2GraphWidget->graph(1)->setData(x_lambda_s, y_lambda_s1);
+    ui.approximation2GraphWidget->graph(1)->setPen(QPen(Qt::red));
+    ui.approximation2GraphWidget->addGraph();
+    ui.approximation2GraphWidget->graph(2)->setData(x_lambda_s, y_lambda_s2);
+    ui.approximation2GraphWidget->graph(2)->setPen(QPen(Qt::red));
+
+    ui.approximation2GraphWidget->xAxis->setLabel("t");
+    ui.approximation2GraphWidget->yAxis->setLabel("lambda");
+    ui.approximation2GraphWidget->xAxis->setRange(x_lambda_s.first(), x_lambda_s.last());
+    double yrange = ymax - ymin;
+    ui.approximation2GraphWidget->yAxis->setRange(ymin - 0.1 * yrange, ymax + 0.1 * yrange);
+
+    ui.approximation2GraphWidget->graph(0)->setLineStyle(QCPGraph::lsLine);
+    ui.approximation2GraphWidget->graph(0)->setScatterStyle(QCPScatterStyle::ssNone);
+    ui.approximation2GraphWidget->graph(0)->setLineStyle(QCPGraph::lsStepLeft);
+
+    ui.approximation2GraphWidget->graph(1)->setLineStyle(QCPGraph::lsLine);
+    ui.approximation2GraphWidget->graph(1)->setScatterStyle(QCPScatterStyle::ssNone);
+    ui.approximation2GraphWidget->graph(1)->setLineStyle(QCPGraph::lsStepLeft);
+
+    ui.approximation2GraphWidget->graph(2)->setLineStyle(QCPGraph::lsLine);
+    ui.approximation2GraphWidget->graph(2)->setScatterStyle(QCPScatterStyle::ssNone);
+    ui.approximation2GraphWidget->graph(2)->setLineStyle(QCPGraph::lsStepLeft);
+
+    ui.approximation2GraphWidget->addGraph();
+    ui.approximation2GraphWidget->graph(3)->setData(x_lambda, y_lambda);
+    QPen pen(Qt::darkGreen);
+    pen.setWidth(2);
+    ui.approximation2GraphWidget->graph(3)->setPen(pen);
+
+    for (const auto& x : x_lambda_s)
+    {
+        QCPItemStraightLine* infLine = new QCPItemStraightLine(ui.approximation2GraphWidget);
+        infLine->point1->setCoords(x, 0);  // location of point 1 in plot coordinate
+        infLine->point2->setCoords(x, 1);  // location of point 2 in plot coordinate
+        infLine->setPen(QPen(Qt::gray));
+    }
+
+    ui.approximation2GraphWidget->replot();
+
+    // функція сплайн-експоненційного розподілу
+
+    double y_dist_max = DBL_MIN;
+    double y_dist_min = DBL_MAX;
+
+    QVector<double> x_prevDist, y_prevDist;
+    for (auto& ls : m_lambdaS)
+    {
+        x_prevDist.push_back( (ls.t0 + ls.t1) / 2 );
+        y_prevDist.push_back( ls.dist );
+
+        if (y_prevDist.back() > y_dist_max)
+            y_dist_max = y_prevDist.back();
+
+        if (y_prevDist.back() < y_dist_min)
+            y_dist_min = y_prevDist.back();
+    }
+
+    QVector<double> x_spline, y_spline;
+    QVector<double> x_dots, y_dots;
+
+    // для кожного класу створюємо сплайн
+    for (int i = 0; i < m_lambdaSDiscrete.size(); ++i)
+    {
+        double t0 = m_lambdaSDiscrete[i].t0;
+        double t1 = m_lambdaSDiscrete[i].t1;
+
+        auto f = [i, lambdaS = m_lambdaSDiscrete](double t) ->double {
+
+            double sum = 0.0;
+            for (int s = 0; s < i; ++s)
+            {
+                sum += ( lambdaS[s].lambda_s - lambdaS[s+1].lambda_s ) * lambdaS[s].t1;
+            }
+
+            return 1 - exp( -lambdaS[i].lambda_s * t  - sum );
+        };
+
+        if (i < m_lambdaSDiscrete.size() - 1)
+        {
+            x_dots.push_back(t1);
+            y_dots.push_back(f(t1));
+        }
+        
+        const int Nsamples = 100;
+        for (int p = 0; p < Nsamples; ++p )
+        {
+            double t = t0 + ( t1 - t0 ) * ( (double)p  / (double)Nsamples);
+            x_spline.push_back(t);
+            y_spline.push_back(f(t));
+
+            if (y_spline.back() > y_dist_max)
+                y_dist_max = y_spline.back();
+
+            if (y_spline.back() < y_dist_min)
+                y_dist_min = y_spline.back();
+        }
+    }
+
+    ui.distribution2GraphWidget->clearItems();
+    ui.distribution2GraphWidget->clearGraphs();
+    ui.distribution2GraphWidget->show();
+    ui.distribution2GraphWidget->addGraph();
+    ui.distribution2GraphWidget->graph(0)->setData(x_prevDist, y_prevDist);
+
+    ui.distribution2GraphWidget->xAxis->setLabel("t");
+    ui.distribution2GraphWidget->yAxis->setLabel("F(t)");
+    ui.distribution2GraphWidget->xAxis->setRange(x_spline.first(), x_spline.last());
+    yrange = y_dist_max - y_dist_min;
+    ui.distribution2GraphWidget->yAxis->setRange(y_dist_min - 0.1 * yrange, y_dist_max + 0.1 * yrange);
+
+    ui.distribution2GraphWidget->graph(0)->setLineStyle(QCPGraph::lsLine);
+    ui.distribution2GraphWidget->graph(0)->setScatterStyle(QCPScatterStyle::ssNone);
+    ui.distribution2GraphWidget->graph(0)->setPen(QPen(Qt::red));
+
+    ui.distribution2GraphWidget->addGraph();
+    QPen pen2(Qt::darkGreen);
+    pen2.setWidth(2);
+    ui.distribution2GraphWidget->graph(1)->setPen(pen2);
+    ui.distribution2GraphWidget->graph(1)->setData(x_spline, y_spline);
+
+    ui.distribution2GraphWidget->addGraph();
+    ui.distribution2GraphWidget->graph(2)->setData(x_dots, y_dots);
+    ui.distribution2GraphWidget->graph(2)->setLineStyle(QCPGraph::lsNone);
+    ui.distribution2GraphWidget->graph(2)->setScatterStyle(QCPScatterStyle::ssDisc);
+    ui.distribution2GraphWidget->graph(2)->setPen(pen2);
+
+
+    for (const auto& x : x_dots)
+    {
+        QCPItemStraightLine* infLine = new QCPItemStraightLine(ui.distribution2GraphWidget);
+        infLine->point1->setCoords(x, 0);  // location of point 1 in plot coordinate
+        infLine->point2->setCoords(x, 1);  // location of point 2 in plot coordinate
+        infLine->setPen(QPen(Qt::gray));
+    }
+
+    ui.distribution2GraphWidget->replot();
+
 
     return true;
 }

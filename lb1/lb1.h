@@ -13,11 +13,18 @@ class lb1 : public QMainWindow
 private:
     struct LambdaS
     {
+        int ns;
         int t0;
         int t1;
         double lambda_s;
         double lambda_s1;
         double lambda_s2;
+        double dist;
+
+        LambdaS(int ns = 0, int t0 = 0, int t1 = 0, double lambda_s = 0.0, double lambda_s1 = 0.0, double lambda_s2 = 0.0, double dist = 0.0)
+            : ns(ns), t0(t0), t1(t1), lambda_s(lambda_s), lambda_s1(lambda_s1), lambda_s2(lambda_s2), dist(dist)
+        {
+        }
     };  
     struct ApproxFunction
     {
@@ -42,7 +49,8 @@ private slots:
     bool proc2();
     bool proc3();
     bool proc4();
-    bool proc5();
+    bool proc56();
+    bool proc6();
 
 private:
     Ui::lb1Class ui;
@@ -51,4 +59,6 @@ private:
     QVector<LambdaS> m_lambdaS;
     QVector<ApproxFunction> m_approxFunctions;
     bool m_flowIsTrivial;
+    bool m_proc5isOk;
+    QVector<LambdaS> m_lambdaSDiscrete;
 };
