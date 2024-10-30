@@ -1,5 +1,7 @@
 ﻿#include "stdafx.h"
 #include "lb1.h"
+#include "MyTableItemDelegate.h"
+#include "CustomTicker.h"
 
 
 #include <math.h>
@@ -199,14 +201,49 @@ lb1::lb1(QWidget *parent)
 {
     ui.setupUi(this);
     ui.inputTab->layout()->setAlignment(Qt::AlignTop);
+    ui.intervalsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 2, ui.intervalsWidget));
+    ui.intervalsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.intervalsWidget->setAlternatingRowColors(true);
+
+    ui.check1ResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.check1ResultsWidget->setAlternatingRowColors(true);
+    ui.check1ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
+    ui.check2ResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.check2ResultsWidget->setAlternatingRowColors(true);
+    ui.check2ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
     ui.flowParameterTab->layout()->setAlignment(Qt::AlignTop);
     ui.check3Group->layout()->setAlignment(Qt::AlignTop);
+    ui.check3ResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.check3ResultsWidget->setAlternatingRowColors(true);
+    ui.check3ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
     ui.intensityParameterTab->layout()->setAlignment(Qt::AlignTop);
     ui.check4Group->layout()->setAlignment(Qt::AlignTop);
+    ui.check4ResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.check4ResultsWidget->setAlternatingRowColors(true);
+    ui.check4ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
     ui.approximationTab->layout()->setAlignment(Qt::AlignTop);
     ui.check5Group->layout()->setAlignment(Qt::AlignTop);
+    ui.check5ResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.check5ResultsWidget->setAlternatingRowColors(true);
+    ui.check5ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
     ui.approximationTab2->layout()->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     ui.check6Group->layout()->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    ui.check6ResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.check6ResultsWidget->setAlternatingRowColors(true);
+    ui.check6ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
     connect(ui.browseBtn, SIGNAL(clicked()), this, SLOT(browse()));
     connect(ui.pathEdit, SIGNAL(textChanged(const QString&)), this, SLOT(loadIntervas(const QString&)));
     connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc3()));
@@ -220,9 +257,6 @@ lb1::lb1(QWidget *parent)
 
     ui.pathEdit->setText("C:/Users/ospodynets/Documents/EDU/TMO/opts/opt5.txt");
     loadIntervas(ui.pathEdit->text());
-    ui.approxFunctionBox->blockSignals(true);
-    ui.approxFunctionBox->setCurrentIndex(0);
-    ui.approxFunctionBox->blockSignals(false);
     evaluate();
 }
 
@@ -371,19 +405,19 @@ bool lb1::loadIntervas(const QString & path)
 
     // update header text
     QStringList headerLabels;
-    headerLabels << "№" << "Інтервали між вимогами";
+    headerLabels << "№" << "Інтервал";
     ui.intervalsWidget->setHorizontalHeaderLabels(headerLabels);
+
 
     // update alignment 
     ui.intervalsWidget->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
     // set minimuw width for columns to fit header text
     ui.intervalsWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     // set minimum width for columns
-    ui.intervalsWidget->horizontalHeader()->setMinimumSectionSize(100);
+    ui.intervalsWidget->horizontalHeader()->setMinimumSectionSize(75);
 
     // change comparator for items
     ui.intervalsWidget->setSortingEnabled(true);
-    ui.intervalsWidget->sortByColumn(1, Qt::AscendingOrder);
 
     // graph
     ui.inputGraphWidget->clearGraphs();
@@ -394,6 +428,9 @@ bool lb1::loadIntervas(const QString & path)
     ui.inputGraphWidget->yAxis->setLabel("інтервал");
     ui.inputGraphWidget->xAxis->setRange(0, m_intervals.size());
     ui.inputGraphWidget->yAxis->setRange(0, max);
+    
+    ui.inputGraphWidget->graph(0)->setLineStyle(QCPGraph::lsImpulse);
+
 
     ui.mInputBox->blockSignals(true);
     ui.mInputBox->setMinimum( 2 );
@@ -775,6 +812,9 @@ bool lb1::proc3()
         infLine->setPen(QPen(Qt::gray));
     }
 
+    QSharedPointer <CustomTicker> ticker{ new CustomTicker(x_mju_s, 0) };
+    ui.flowParameterGraphWidget->xAxis->setTicker(ticker);
+
     ui.flowParameterGraphWidget->replot();
 
     return true;
@@ -999,6 +1039,9 @@ bool lb1::proc4()
             infLine->point2->setCoords(x, 1);  // location of point 2 in plot coordinate
             infLine->setPen(QPen(Qt::gray));
         }
+
+        QSharedPointer <CustomTicker> ticker{ new CustomTicker(x_lambda_s, 0) };
+        ui.intensityParameterGraphWidget->xAxis->setTicker(ticker);
 
         ui.intensityParameterGraphWidget->graph(0)->setLineStyle(QCPGraph::lsLine);
         ui.intensityParameterGraphWidget->graph(0)->setScatterStyle(QCPScatterStyle::ssNone);
@@ -1257,6 +1300,9 @@ bool lb1::proc56()
         infLine->setPen(QPen(Qt::gray));
     }
 
+    QSharedPointer <CustomTicker> ticker{ new CustomTicker(x_lambda_s, 0) };
+    ui.approximationGraphWidget->xAxis->setTicker(ticker);
+
     ui.approximationGraphWidget->replot();
 
     auto lambda_t = [&af, p](double t) {
@@ -1502,6 +1548,9 @@ bool lb1::proc6()
         infLine->setPen(QPen(Qt::gray));
     }
 
+    QSharedPointer <CustomTicker> ticker{ new CustomTicker(x_lambda_s, 0) };
+    ui.approximation2GraphWidget->xAxis->setTicker(ticker);
+
     ui.approximation2GraphWidget->replot();
 
     // функція сплайн-експоненційного розподілу
@@ -1599,6 +1648,10 @@ bool lb1::proc6()
         infLine->point2->setCoords(x, 1);  // location of point 2 in plot coordinate
         infLine->setPen(QPen(Qt::gray));
     }
+
+    QSharedPointer<CustomTicker> ticker2{ new CustomTicker(x_dots, 0) };
+    ui.distribution2GraphWidget->xAxis->setTicker(ticker);
+
 
     ui.distribution2GraphWidget->replot();
 

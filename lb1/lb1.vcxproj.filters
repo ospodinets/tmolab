@@ -49,10 +49,24 @@
     <ClCompile Include="qcustomplot.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MyTableItemDelegate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="CustomTicker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="qcustomplot.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="MyTableItemDelegate.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CustomTicker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
