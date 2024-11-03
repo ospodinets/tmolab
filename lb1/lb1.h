@@ -40,10 +40,13 @@ public:
 private:
     void disableUI();
     void initApproximationFunctions();
+    QVector<int> loadIntervals(const QString& path);
 
 private slots:
-    bool loadIntervas(const QString& path);
+    bool showIntervals(const QString& path);
     void browse();
+    void browse1();
+    void browse2();
     void evaluate();
     bool proc1();
     bool proc2();
@@ -51,6 +54,7 @@ private slots:
     bool proc4();
     bool proc56();
     bool proc6();
+    void evaluateCompareFlows();
 
 private:
     Ui::lb1Class ui;
@@ -61,4 +65,9 @@ private:
     bool m_flowIsTrivial;
     bool m_proc5isOk;
     QVector<LambdaS> m_lambdaSDiscrete;
+
+    QVector<int> m_intervals1;
+    bool m_flow1IsTrivial;
+    QVector<int> m_intervals2;
+    bool m_flow2IsTrivial;
 };

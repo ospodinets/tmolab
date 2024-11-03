@@ -70,6 +70,20 @@ namespace
         return sqrt(2 * M_PI / x) * pow(x / M_E, x);
     }
 
+    // Функція для обчислення неповної бета-функції
+    double incompleteBeta(double x, double a, double b) {
+        double sum = 0.0;
+        double term = 1.0;
+        for (int k = 0; k < 1000; ++k) {
+            if (k > 0) {
+                term *= (a + k - 1) * x / (k * (b - k));
+            }
+            sum += term;
+            if (std::fabs(term) < 1e-10) break;  // Похибка
+        }
+        return sum * std::pow(x, a) * std::pow(1 - x, b) / (a * tgamma(a) * tgamma(b));
+    }
+
     // Інтегральна функція (метод трапецій для наближеного обчислення)
     double chi_square_cdf(int k, double x) {
         int n = 10000;  // кількість підінтервалів для точності
@@ -160,6 +174,81 @@ namespace
         return x;
     }
 
+    bool isFlowTrivial( const QVector<int>& intervals_ )
+    {
+        QVector <int> intervals = intervals_;
+        const double N = intervals.size();
+
+        std::sort(intervals.begin(), intervals.end());
+
+        QVector<int> d;
+        for (int i = 1; i < intervals.size(); ++i)
+        {
+            d.push_back(intervals[i] - intervals[i - 1]);
+        }
+
+        QVector<int> dN;
+        // значення нормованих величин
+        for (int i = 0; i < d.size(); ++i)
+        {
+            dN.push_back((N - i + 1) * d[i]);
+        }
+
+        double V = 0;
+        for (int i = 0; i < dN.size() - 1; ++i)
+        {
+            for (int j = i + 1; j < dN.size(); ++j)
+            {
+                if (dN[i] > dN[j])
+                {
+                    V++;
+                }
+                else if (dN[i] == dN[j])
+                {
+                    V += 0.5;
+                }
+            }
+        }
+
+        double EV = (N * (N - 1)) / 4;
+        double sigmaV = sqrt((N * (N - 1) * (2 * N + 5)) / 72);
+        double u = (V + 0.5 - EV) / sigmaV;
+
+
+        // квантіль стандартного нормального розподілу
+        double u_alpha = inverseNormalCDF(1 - s_alpha / 2);
+
+        return abs(u) <= u_alpha;
+    }
+
+    // Кумулятивна функція розподілу Фішера
+    double fisherCDF(double x, int df1, int df2) {
+        double a = df1 / 2.0;
+        double b = df2 / 2.0;
+        double y = (df1 * x) / (df1 * x + df2);
+        return incompleteBeta(y, a, b);
+    }
+
+    double fisher_critical_value(double alpha, int df1, int df2, double tol = 1e-6) {
+        double left = 0.0;
+        double right = 10.0;  // Початковий верхній межу можна збільшити
+        double mid;
+
+        // Бінарний пошук для знаходження квантиля
+        while (right - left > tol) {
+            mid = (left + right) / 2;
+            if (fisherCDF(mid, df1, df2) < 1.0 - alpha) {
+                left = mid;
+            }
+            else {
+                right = mid;
+            }
+        }
+
+        return mid;
+    }
+
+    
     void test_t_quantile()
     {
         QVector<double> p = { 0.05 };
@@ -244,20 +333,37 @@ lb1::lb1(QWidget *parent)
     ui.check6ResultsWidget->setAlternatingRowColors(true);
     ui.check6ResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
 
+
+    ui.flowComparisonTab->layout()->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    ui.intervals1Widget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 2, ui.intervalsWidget));
+    ui.intervals1Widget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.intervals1Widget->setAlternatingRowColors(true);
+
+    ui.intervals2Widget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 2, ui.intervalsWidget));
+    ui.intervals2Widget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.intervals2Widget->setAlternatingRowColors(true);
+
+    ui.checkCompResultsWidget->horizontalHeader()->setStyleSheet("QHeaderView::section { font-weight: bold; background-color: #d3d7cf; border: 1px; }"
+        " QHeaderView::section:hover{background-color: #babdb6;} ");
+    ui.checkCompResultsWidget->setAlternatingRowColors(true);
+    ui.checkCompResultsWidget->setItemDelegate(new CustomDelegate(Qt::AlignCenter, 5, ui.intervalsWidget));
+
     connect(ui.browseBtn, SIGNAL(clicked()), this, SLOT(browse()));
-    connect(ui.pathEdit, SIGNAL(textChanged(const QString&)), this, SLOT(loadIntervas(const QString&)));
+    connect(ui.pathEdit, SIGNAL(textChanged(const QString&)), this, SLOT(showIntervals(const QString&)));
     connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc3()));
     connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc4()));
     connect(ui.mInputBox, SIGNAL(valueChanged(int)), this, SLOT(proc56()));
     connect(ui.approxFunctionBox, SIGNAL(currentIndexChanged(int)), this, SLOT(proc56()));
 
+
+    connect(ui.browse1Btn, SIGNAL(clicked()), this, SLOT(browse1()));
+    connect(ui.browse2Btn, SIGNAL(clicked()), this, SLOT(browse2()));
+
     initApproximationFunctions();
 
     disableUI();
-
-    ui.pathEdit->setText("C:/Users/ospodynets/Documents/EDU/TMO/opts/opt5.txt");
-    loadIntervas(ui.pathEdit->text());
-    evaluate();
 }
 
 lb1::~lb1()
@@ -312,6 +418,16 @@ void lb1::disableUI()
     ui.distribution2GraphWidget->clearGraphs();
     ui.distribution2GraphWidget->replot();
     ui.distribution2GraphWidget->hide();
+
+    ui.intervals1Widget->clear();
+    ui.intervals1Widget->hide();
+    ui.intervals2Widget->clear();
+    ui.intervals2Widget->hide();
+    ui.checkCompResultsWidget->clear();
+    ui.checkCompGroup->hide();
+
+    ui.flow1IsNotTrivial->setText("");
+    ui.flow2IsNotTrivial->setText("");
 }
 
 void lb1::initApproximationFunctions()
@@ -352,25 +468,32 @@ void lb1::initApproximationFunctions()
     ui.approxFunctionBox->blockSignals(false);
 }
 
-bool lb1::loadIntervas(const QString & path)
+QVector<int> lb1::loadIntervals(const QString& path)
 {
+    QVector<int> intervals;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
     {
         QMessageBox::warning(this, "Warning", "Cannot open file");
-        return false;
+        return intervals;
     }
 
     QTextStream in(&file);
     // load parse numbers separated by spaces
     QString line = in.readAll();
     QStringList numbers = line.split(" ");
-    m_intervals.clear();
+
     for (const QString& number : numbers)
     {
-        m_intervals.push_back(number.toInt());
+        intervals.push_back(number.toInt());
     }
     file.close();
+    return intervals;
+}
+
+bool lb1::showIntervals(const QString & path)
+{
+    m_intervals = loadIntervals(path);
 
     ui.intervalsWidget->clear();
     ui.intervalsWidget->show();
@@ -439,6 +562,8 @@ bool lb1::loadIntervas(const QString & path)
     ui.mInputBox->blockSignals(false);
 
     ui.inputGraphWidget->replot();
+
+    evaluate();
 
     return true;
 }
@@ -636,6 +761,7 @@ bool lb1::proc2()
 
 bool lb1::proc3()
 {
+
     QVector<double> t;
     t.push_back(0.0);
 
@@ -1008,6 +1134,8 @@ bool lb1::proc4()
     }
 
     double yrange = ymax - ymin;
+    if( yrange < 1e-06 )
+        yrange = 2 * ymax;
 
     ui.intensityParameterGraphWidget->clearItems();
     ui.intensityParameterGraphWidget->clearGraphs();
@@ -1053,7 +1181,7 @@ bool lb1::proc4()
         QCPItemText* textLabel = new QCPItemText(ui.intensityParameterGraphWidget);
         textLabel->setPositionAlignment(Qt::AlignHCenter | Qt::AlignTop);
         textLabel->position->setType(QCPItemPosition::ptPlotCoords);
-        textLabel->position->setCoords( (x_lambda_s[0] + x_lambda_s[1]) / 2, ymax - 0.1 * yrange);
+        textLabel->position->setCoords( (x_lambda_s[0] + x_lambda_s[1]) / 2, ymax);
         textLabel->setText("λ = " + QString::number(y_lambda_s[0]));
         textLabel->setFont(QFont(font().family(), 10));
         textLabel->setPen(QPen(Qt::black));
@@ -1659,6 +1787,162 @@ bool lb1::proc6()
     return true;
 }
 
+void lb1::evaluateCompareFlows()
+{
+    ui.intervals1Widget->hide();
+    ui.intervals2Widget->hide();
+
+    ui.intervals1Widget->clear();
+    ui.intervals1Widget->show();
+
+    ui.intervals1Widget->setRowCount(m_intervals1.size());
+    ui.intervals1Widget->setColumnCount(2);
+
+    for (int i = 0; i < m_intervals1.size(); ++i)
+    {
+        QTableWidgetItem* indexItem = new QTableWidgetItem();
+        indexItem->setData(Qt::DisplayRole, i);
+        ui.intervals1Widget->setItem(i, 0, indexItem);
+
+        QTableWidgetItem* intervalItem = new QTableWidgetItem();
+        intervalItem->setData(Qt::DisplayRole, m_intervals1[i]);
+        ui.intervals1Widget->setItem(i, 1, intervalItem);
+    }
+
+    // update header text
+    QStringList headerLabels;
+    headerLabels << "№" << "Інтервал";
+    ui.intervals1Widget->setHorizontalHeaderLabels(headerLabels);
+
+
+    // update alignment 
+    ui.intervals1Widget->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    // set minimuw width for columns to fit header text
+    ui.intervals1Widget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // set minimum width for columns
+    ui.intervals1Widget->horizontalHeader()->setMinimumSectionSize(75);
+
+    // change comparator for items
+    ui.intervals1Widget->setSortingEnabled(true);
+    ui.intervals1Widget->show();
+    
+    ui.intervals2Widget->clear();
+
+    ui.intervals2Widget->setRowCount(m_intervals2.size());
+    ui.intervals2Widget->setColumnCount(2);
+
+    for (int i = 0; i < m_intervals2.size(); ++i)
+    {
+        QTableWidgetItem* indexItem = new QTableWidgetItem();
+        indexItem->setData(Qt::DisplayRole, i);
+        ui.intervals2Widget->setItem(i, 0, indexItem);
+
+        QTableWidgetItem* intervalItem = new QTableWidgetItem();
+        intervalItem->setData(Qt::DisplayRole, m_intervals2[i]);
+        ui.intervals2Widget->setItem(i, 1, intervalItem);
+    }
+
+    // update header text
+    ui.intervals2Widget->setHorizontalHeaderLabels(headerLabels);
+
+
+    // update alignment 
+    ui.intervals2Widget->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    // set minimuw width for columns to fit header text
+    ui.intervals2Widget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // set minimum width for columns
+    ui.intervals2Widget->horizontalHeader()->setMinimumSectionSize(75);
+
+    // change comparator for items
+    ui.intervals2Widget->setSortingEnabled(true);
+    ui.intervals2Widget->show();
+
+    ui.checkCompGroup->hide();
+
+    double T1 = 0.0;
+    double n1 = m_intervals1.size();
+    for (int i = 0; i < m_intervals1.size(); ++i)
+    {
+        T1 += m_intervals1[i];
+    }
+
+    double T2 = 0.0;
+    double n2 = m_intervals2.size();
+    for (int i = 0; i < m_intervals2.size(); ++i)
+    {
+        T2 += m_intervals2[i];
+    }
+
+    bool outcome = false;
+
+    double R = (n1 * T1) / (n2 * T2);
+    if (n1 < 30 && n2 < 30)
+    {
+        double F = fisher_critical_value( 2 * n1, 2 * n2, s_alpha);
+        outcome = R < F;
+
+        ui.checkCompResultsWidget->clear();
+        ui.checkCompResultsWidget->setRowCount(1);
+        ui.checkCompResultsWidget->setColumnCount(3);
+
+        QStringList headerLabels;
+        headerLabels << "R" << "F" << "Висновок";
+        ui.checkCompResultsWidget->setHorizontalHeaderLabels(headerLabels);
+
+        QTableWidgetItem* item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, R);
+        ui.checkCompResultsWidget->setItem(0, 0, item);
+
+        item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, F);
+        ui.checkCompResultsWidget->setItem(0, 1, item);
+
+        item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, outcome ? "Потоки збігаються" : "Потоки не збігаються");
+        ui.checkCompResultsWidget->setItem(0, 2, item);
+        ui.checkCompGroup->show();
+    }
+    else
+    {
+        double z = log(R);
+        double Ez = 0.5 * (1 / n1 - 1 / n2);
+        double sigmaz = sqrt(1 / n1 + 1 / n2);
+
+        double U = (z - Ez) / sigmaz;
+
+        double u_alpha = inverseNormalCDF(1 - s_alpha / 2);
+        outcome = abs(U) < u_alpha;
+
+        ui.checkCompResultsWidget->clear();
+        ui.checkCompResultsWidget->setRowCount(1);
+        ui.checkCompResultsWidget->setColumnCount(3);
+
+        QStringList headerLabels;
+        headerLabels << "U" << "U_alpha" << "Висновок";
+        ui.checkCompResultsWidget->setHorizontalHeaderLabels(headerLabels);
+
+        QTableWidgetItem* item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, U);
+        ui.checkCompResultsWidget->setItem(0, 0, item);
+
+        item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, u_alpha);
+        ui.checkCompResultsWidget->setItem(0, 1, item);
+
+        item = new QTableWidgetItem();
+        item->setData(Qt::DisplayRole, outcome ? "Потоки збігаються" : "Потоки не збігаються");
+        ui.checkCompResultsWidget->setItem(0, 2, item);
+        ui.checkCompGroup->show();
+    }   
+
+
+    ui.checkCompResultsWidget->horizontalHeader()->setDefaultAlignment(Qt::AlignCenter);
+    // set minimuw width for columns to fit header text
+    ui.checkCompResultsWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // set minimum width for columns
+    ui.checkCompResultsWidget->horizontalHeader()->setMinimumSectionSize(200);
+}
+
 void lb1::browse()
 {
     QString filename = QFileDialog::getOpenFileName(this, "Open File");
@@ -1668,8 +1952,55 @@ void lb1::browse()
         ui.pathEdit->setText(filename);
         ui.pathEdit->blockSignals(false);
         disableUI();
-        if (loadIntervas(filename))
-            evaluate();
+
+        showIntervals( filename );
+    }
+}
+
+void lb1::browse1()
+{
+    QString filename = QFileDialog::getOpenFileName(this, "Open File");
+    if (!filename.isEmpty())
+    {
+        ui.path1Edit->blockSignals(true);
+        ui.path1Edit->setText(filename);
+        ui.path1Edit->blockSignals(false);
+
+        ui.flow1IsNotTrivial->setText("");
+
+        ui.intervals1Widget->clear();
+        ui.intervals1Widget->hide();
+        ui.checkCompResultsWidget->clear();
+        ui.checkCompGroup->hide();
+
+        m_intervals1 = loadIntervals(filename);
+        m_flow1IsTrivial = isFlowTrivial(m_intervals1);
+        ui.flow1IsNotTrivial->setText(m_flow1IsTrivial ? "" : "Потік не є найпростішим!");
+
+        if (!m_intervals1.isEmpty() && !m_intervals2.isEmpty() && m_flow1IsTrivial && m_flow2IsTrivial )
+            evaluateCompareFlows();
+    }
+}
+
+void lb1::browse2()
+{
+    QString filename = QFileDialog::getOpenFileName(this, "Open File");
+    if (!filename.isEmpty())
+    {
+        ui.path2Edit->blockSignals(true);
+        ui.path2Edit->setText(filename);
+        ui.path2Edit->blockSignals(false);
+
+        ui.intervals2Widget->clear();
+        ui.intervals2Widget->hide();
+        ui.checkCompResultsWidget->clear();
+        ui.checkCompGroup->hide();
+
+        m_intervals2 = loadIntervals(filename);
+        m_flow2IsTrivial = isFlowTrivial(m_intervals2);
+        ui.flow2IsNotTrivial->setText(m_flow2IsTrivial ? "" : "Потік не є найпростішим!");
+        if (!m_intervals1.isEmpty() && !m_intervals2.isEmpty() && m_flow1IsTrivial && m_flow2IsTrivial )
+            evaluateCompareFlows();
     }
 }
 
